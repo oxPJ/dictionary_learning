@@ -1,3 +1,4 @@
+#this file is a version of demo.py in the dictionary_learning_demo repo: https://github.com/adamkarvonen/dictionary_learning_demo
 import os
 
 # I believe this environment variable should be set before importing torch
@@ -65,13 +66,6 @@ def get_args():
     )
     parser.add_argument(
         "--mixed_dataset", action="store_true", help="use mixed dataset"
-    )
-    parser.add_argument(
-        "--seeds",
-        type=int,
-        nargs="+",
-        default=None,
-        help="random seeds to sweep over (e.g., --seeds 0 1 2 42). If not provided, uses demo_config.random_seeds",
     )
 
     args = parser.parse_args()
@@ -355,10 +349,6 @@ if __name__ == "__main__":
 
     start_time = time.time()
 
-    # Use command line seeds if provided, otherwise fall back to demo_config
-    random_seeds = args.seeds if args.seeds is not None else demo_config.random_seeds
-    print(f"Running sweep with random seeds: {random_seeds}")
-
     save_dir = (
         f"{args.save_dir}_{args.model_name}_{'_'.join(args.architectures)}".replace(
             "/", "_"
@@ -373,7 +363,7 @@ if __name__ == "__main__":
             device=args.device,
             architectures=args.architectures,
             num_tokens=demo_config.num_tokens,
-            random_seeds=random_seeds,
+            random_seeds=demo_config.random_seeds,
             dictionary_widths=demo_config.dictionary_widths,
             learning_rates=demo_config.learning_rates,
             dry_run=args.dry_run,
