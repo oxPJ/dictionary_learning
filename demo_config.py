@@ -1,3 +1,6 @@
+#this file is a modified version of demo_config.py in the dictionary_learning_demo repo: https://github.com/adamkarvonen/dictionary_learning_demo
+
+
 from dataclasses import dataclass, asdict, field
 from typing import Optional, Type, Any
 from enum import Enum
@@ -24,6 +27,11 @@ from dictionary_learning.trainers.matryoshka_batch_top_k import (
     MatryoshkaBatchTopKSAE,
 )
 from dictionary_learning.trainers.top_k_l2 import TopKTrainerL2
+from dictionary_learning.trainers.top_k_l1 import TopKTrainerL1
+from dictionary_learning.trainers.batch_top_k_l1 import BatchTopKTrainerL1
+from dictionary_learning.trainers.matryoshka_batch_top_k_l1 import MatryoshkaBatchTopKTrainerL1
+from dictionary_learning.trainers.batch_top_k_l2 import BatchTopKTrainerL2
+from dictionary_learning.trainers.matryoshka_batch_top_k_l2 import MatryoshkaBatchTopKTrainerL2
 
 from dictionary_learning.dictionary import (
     AutoEncoder,
@@ -43,6 +51,11 @@ class TrainerType(Enum):
     JUMP_RELU = "jump_relu"
     Matryoshka_BATCH_TOP_K = "matryoshka_batch_top_k"
     TOP_K_L2="top_k_l2"
+    TOP_K_L1="top_k_l1"
+    BATCH_TOP_K_L1="batch_top_k_l1"
+    Matryoshka_BATCH_TOP_K_L1="matryoshka_batch_top_k_l1"
+    BATCH_TOP_K_L2="batch_top_k_l2"
+    Matryoshka_BATCH_TOP_K_L2="matryoshka_batch_top_k_l2"
 
 
 @dataclass
@@ -66,7 +79,7 @@ num_tokens = 50_000_000
 print(f"NOTE: Training on {num_tokens} tokens")
 
 eval_num_inputs = 200
-random_seeds = [0]
+random_seeds = [0, 1, 2]
 dictionary_widths = [2**14]
 # dictionary_widths = [2**14]
 
@@ -113,9 +126,10 @@ SPARSITY_PENALTIES = SparsityPenalties(
     gated=[0.012, 0.018, 0.024, 0.04, 0.06, 0.08],
 )
 
-WEIGHT_L2_GRID = [0, 0.000000000001, 0.00000001, 0.000001, 0.0001, 0.01] 
-TARGET_L0s = [20, 40, 80, 150, 320]
-# TARGET_L0s = [20, 40, 80, 160, 320, 640]
+WEIGHT_L2_GRID = [0, 0.0001] 
+WEIGHT_L1_GRID = [0, 0.0001] 
+TARGET_L0s = [40, 80, 150, 320]
+
 
 
 @dataclass
@@ -180,7 +194,7 @@ class TopKTrainerConfig(BaseTrainerConfig):
     k_anneal_steps: Optional[int] = None
 
 @dataclass
-class TopKTrainerConfigL2(BaseTrainerConfig):
+class TopKTrainerConfigWeightPenalty(BaseTrainerConfig):
     dict_size: int
     seed: int
     lr: float
@@ -189,7 +203,7 @@ class TopKTrainerConfigL2(BaseTrainerConfig):
     threshold_beta: float = 0.999
     threshold_start_step: int = 1000  # when to begin tracking the average threshold
     k_anneal_steps: Optional[int] = None
-    weight_l2: float = 0.0  
+    weight_l_penalty: float = 0.0  
 
 
 @dataclass
@@ -212,6 +226,30 @@ class MatryoshkaBatchTopKTrainerConfig(BaseTrainerConfig):
     threshold_beta: float = 0.999
     threshold_start_step: int = 1000  # when to begin tracking the average threshold
     k_anneal_steps: Optional[int] = None
+
+
+@dataclass
+class MatryoshkaBatchTopKTrainerConfigWeightPenalty(BaseTrainerConfig):
+    dict_size: int
+    seed: int
+    lr: float
+    k: int
+    group_fractions: list[float] = field(
+        default_factory=lambda: [
+            (1 / 32),
+            (1 / 16),
+            (1 / 8),
+            (1 / 4),
+            ((1 / 2) + (1 / 32)),
+        ]
+    )
+    group_weights: Optional[list[float]] = None
+    auxk_alpha: float = 1 / 32
+    threshold_beta: float = 0.999
+    threshold_start_step: int = 1000  # when to begin tracking the average threshold
+    k_anneal_steps: Optional[int] = None
+    weight_l_penalty: float = 0.0  
+
 
 
 @dataclass
@@ -353,7 +391,7 @@ def get_trainer_configs(
             for seed, dict_size, learning_rate, k, lw_2 in itertools.product(
                 seeds, dict_sizes, learning_rates, TARGET_L0s, WEIGHT_L2_GRID
             ):
-                config = TopKTrainerConfigL2(
+                config = TopKTrainerConfigWeightPenalty(
                     **base_config,
                     trainer=TopKTrainerL2,
                     dict_class=AutoEncoderTopK,
@@ -361,11 +399,28 @@ def get_trainer_configs(
                     dict_size=dict_size,
                     seed=seed,
                     k=k,
-                    weight_l2=lw_2,
+                    weight_l_penalty=lw_2,
                     k_anneal_steps=anneal_end,
                     wandb_name=f"TopKTrainer-{model_name}-{submodule_name}",
                 )
                 trainer_configs.append(asdict(config))
+    if TrainerType.TOP_K_L1.value in architectures:
+        for seed, dict_size, learning_rate, k, lw_1 in itertools.product(
+            seeds, dict_sizes, learning_rates, TARGET_L0s, WEIGHT_L1_GRID
+        ):
+            config = TopKTrainerConfigWeightPenalty(
+                **base_config,
+                trainer=TopKTrainerL1,
+                dict_class=AutoEncoderTopK,
+                lr=learning_rate,
+                dict_size=dict_size,
+                seed=seed,
+                k=k,
+                weight_l_penalty=lw_1,
+                k_anneal_steps=anneal_end,
+                wandb_name=f"TopKTrainer-{model_name}-{submodule_name}",
+            )
+            trainer_configs.append(asdict(config))
 
     if TrainerType.BATCH_TOP_K.value in architectures:
         for seed, dict_size, learning_rate, k in itertools.product(
@@ -379,6 +434,42 @@ def get_trainer_configs(
                 dict_size=dict_size,
                 seed=seed,
                 k=k,
+                k_anneal_steps=anneal_end,
+                wandb_name=f"BatchTopKTrainer-{model_name}-{submodule_name}",
+            )
+            trainer_configs.append(asdict(config))
+
+    if TrainerType.BATCH_TOP_K_L1.value in architectures:
+        for seed, dict_size, learning_rate, k, lw_1 in itertools.product(
+            seeds, dict_sizes, learning_rates, TARGET_L0s, WEIGHT_L1_GRID
+        ):
+            config = TopKTrainerConfigWeightPenalty(
+                **base_config,
+                trainer=BatchTopKTrainerL1,
+                dict_class=BatchTopKSAE,
+                lr=learning_rate,
+                dict_size=dict_size,
+                seed=seed,
+                k=k,
+                weight_l_penalty=lw_1,
+                k_anneal_steps=anneal_end,
+                wandb_name=f"BatchTopKTrainer-{model_name}-{submodule_name}",
+            )
+            trainer_configs.append(asdict(config))
+
+    if TrainerType.BATCH_TOP_K_L2.value in architectures:
+        for seed, dict_size, learning_rate, k, lw_2 in itertools.product(
+            seeds, dict_sizes, learning_rates, TARGET_L0s, WEIGHT_L2_GRID
+        ):
+            config = TopKTrainerConfigWeightPenalty(
+                **base_config,
+                trainer=BatchTopKTrainerL2,
+                dict_class=BatchTopKSAE,
+                lr=learning_rate,
+                dict_size=dict_size,
+                seed=seed,
+                k=k,
+                weight_l_penalty=lw_2,
                 k_anneal_steps=anneal_end,
                 wandb_name=f"BatchTopKTrainer-{model_name}-{submodule_name}",
             )
@@ -400,7 +491,40 @@ def get_trainer_configs(
                 wandb_name=f"MatryoshkaBatchTopKTrainer-{model_name}-{submodule_name}",
             )
             trainer_configs.append(asdict(config))
-
+    if TrainerType.Matryoshka_BATCH_TOP_K_L1.value in architectures:
+        for seed, dict_size, learning_rate, k, lw_1 in itertools.product(
+            seeds, dict_sizes, learning_rates, TARGET_L0s, WEIGHT_L1_GRID
+        ):
+            config = MatryoshkaBatchTopKTrainerConfigWeightPenalty(
+                **base_config,
+                trainer=MatryoshkaBatchTopKTrainerL1,
+                dict_class=MatryoshkaBatchTopKSAE,
+                lr=learning_rate,
+                dict_size=dict_size,
+                seed=seed,
+                k=k,
+                weight_l_penalty=lw_1,
+                k_anneal_steps=anneal_end,
+                wandb_name=f"MatryoshkaBatchTopKTrainer-{model_name}-{submodule_name}",
+            )
+            trainer_configs.append(asdict(config))
+    if TrainerType.Matryoshka_BATCH_TOP_K_L2.value in architectures:
+        for seed, dict_size, learning_rate, k, lw_2 in itertools.product(
+            seeds, dict_sizes, learning_rates, TARGET_L0s, WEIGHT_L2_GRID
+        ):
+            config = MatryoshkaBatchTopKTrainerConfigWeightPenalty(
+                **base_config,
+                trainer=MatryoshkaBatchTopKTrainerL2,
+                dict_class=MatryoshkaBatchTopKSAE,
+                lr=learning_rate,
+                dict_size=dict_size,
+                seed=seed,
+                k=k,
+                weight_l_penalty=lw_2,
+                k_anneal_steps=anneal_end,
+                wandb_name=f"MatryoshkaBatchTopKTrainer-{model_name}-{submodule_name}",
+            )
+            trainer_configs.append(asdict(config))
     if TrainerType.JUMP_RELU.value in architectures:
         for seed, dict_size, learning_rate, target_l0 in itertools.product(
             seeds, dict_sizes, learning_rates, TARGET_L0s
